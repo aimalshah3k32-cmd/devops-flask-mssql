@@ -15,5 +15,6 @@ jobs:
       - name: Rebuild and Run Docker Containers
         shell: cmd
         run: |
-          docker compose down
+          docker rm -f devops_sqlserver flask_api_container 2>nul || exit 0
+          docker compose down --remove-orphans
           docker compose up --build -d
