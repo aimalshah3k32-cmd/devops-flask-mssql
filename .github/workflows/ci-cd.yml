@@ -1,0 +1,48 @@
+name: DevOps CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build-and-test:
+    name: Build & Test Containers
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: ⚙️ Build and Run with Docker Compose
+        run: |
+          docker compose up --build -d
+          echo "Waiting 20 seconds for SQL Server and Flask to boot..."
+          sleep 20
+          docker compose ps
+
+      - name: 🧪 Verify Backend Health Endpoint
+        run: |
+          curl -f http://localhost:5000/api/health || (docker logs flask_api_container && exit 1)
+
+      - name: ⚡ Initialize Database Table
+        run: |
+          curl -f http://localhost:5000/api/init-db
+
+      - name: 👤 Test User Creation (POST /api/users)
+        run: |
+          curl -f -X POST http://localhost:5000/api/users \
+            -H "Content-Type: application/json" \
+            -d '{"name":"CI Bot","email":"bot@devops.com"}'
+
+      - name: 📊 Test User Retrieval (GET /api/users)
+        run: |
+          curl -f http://localhost:5000/api/users
+
+      - name: 🛑 Teardown Containers
+        if: always()
+        run: docker compose down -v

@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps Portal — Flask + MSSQL + Docker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --bg-card: rgba(18, 26, 44, 0.75);
+      --bg-card-border: rgba(56, 189, 248, 0.12);
+      --accent-blue: #0284c7;
+      --accent-cyan: #38bdf8;
+      --accent-gradient: linear-gradient(135deg, #0284c7 0%, #38bdf8 100%);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --success: #10b981;
+      --success-glow: rgba(16, 185, 129, 0.2);
+      --danger: #ef4444;
+      --danger-glow: rgba(239, 68, 68, 0.2);
+      --card-radius: 16px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: var(--bg-dark);
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(2, 132, 199, 0.15) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(56, 189, 248, 0.1) 0px, transparent 50%);
+      color: var(--text-main);
+      min-height: 100vh;
+      padding: 30px 20px;
+    }
+
+    .container {
+      max-width: 1050px;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    header {
+      text-align: center;
+      margin-bottom: 35px;
+    }
+
+    .brand-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      padding: 6px 14px;
+      border-radius: 100px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--accent-cyan);
+      margin-bottom: 14px;
+    }
+
+    .brand-tag .dot {
+      width: 8px;
+      height: 8px;
+      background: var(--accent-cyan);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--accent-cyan);
+    }
+
+    h1 {
+      font-size: 34px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      background: linear-gradient(180deg, #ffffff 0%, #cbd5e1 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 15px;
+    }
+
+    /* Notification Alert */
+    #toast {
+      display: none;
+      position: fixed;
+      top: 25px;
+      right: 25px;
+      padding: 14px 20px;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      z-index: 1000;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      transition: all 0.3s ease;
+      backdrop-filter: blur(10px);
+    }
+
+    #toast.success {
+      background: rgba(16, 185, 129, 0.9);
+      border: 1px solid #10b981;
+      color: #ffffff;
+    }
+
+    #toast.error {
+      background: rgba(239, 68, 68, 0.9);
+      border: 1px solid #ef4444;
+      color: #ffffff;
+    }
+
+    /* Grid Layout */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 1.6fr;
+      gap: 24px;
+    }
+
+    @media (max-width: 850px) {
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Card Common */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--bg-card-border);
+      border-radius: var(--card-radius);
+      padding: 24px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      padding-bottom: 14px;
+    }
+
+    .card-title {
+      font-size: 17px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* Status Grid */
+    .status-panel {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .status-box {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 12px;
+      padding: 14px;
+      text-align: center;
+    }
+
+    .status-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 50px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .status-badge.connected {
+      background: var(--success-glow);
+      color: #34d399;
+      border: 1px solid rgba(52, 211, 153, 0.3);
+    }
+
+    .status-badge.disconnected {
+      background: var(--danger-glow);
+      color: #f87171;
+      border: 1px solid rgba(248, 113, 113, 0.3);
+    }
+
+    .status-badge .indicator-pulse {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    /* Action Buttons */
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    button {
+      font-family: inherit;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s ease;
+    }
+
+    .btn {
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn-primary {
+      background: var(--accent-gradient);
+      color: white;
+      box-shadow: 0 4px 15px rgba(2, 132, 199, 0.3);
+      width: 100%;
+    }
+
+    .btn-primary:hover {
+      opacity: 0.95;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(2, 132, 199, 0.45);
+    }
+
+    .btn-secondary {
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      color: var(--accent-cyan);
+      flex: 1;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(56, 189, 248, 0.18);
+    }
+
+    /* Form Styles */
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    input {
+      width: 100%;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 12px 14px;
+      color: white;
+      font-size: 14px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+
+    input:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.15);
+    }
+
+    /* Users Table */
+    .table-container {
+      overflow-x: auto;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      background: rgba(15, 23, 42, 0.5);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 13px;
+    }
+
+    th {
+      background: rgba(15, 23, 42, 0.8);
+      padding: 12px 16px;
+      color: var(--text-muted);
+      font-weight: 600;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      text-transform: uppercase;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+    }
+
+    td {
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      color: #e2e8f0;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    tr:hover td {
+      background: rgba(56, 189, 248, 0.03);
+    }
+
+    .user-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: var(--accent-gradient);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      color: white;
+      font-size: 13px;
+      margin-right: 10px;
+    }
+
+    .user-cell {
+      display: flex;
+      align-items: center;
+    }
+
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--accent-cyan);
+      font-size: 12px;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+    }
+
+    .empty-state span {
+      display: block;
+      font-size: 32px;
+      margin-bottom: 10px;
+    }
+
+    /* Tech Pill Row */
+    .tech-stack {
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 30px;
+      flex-wrap: wrap;
+    }
+
+    .tech-pill {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="toast"></div>
+
+  <div class="container">
+    <!-- Header -->
+    <header>
+      <div class="brand-tag">
+        <div class="dot"></div>
+        <span>🚀 CI/CD Auto Deploy Success!</span>
+      </div>
+      <h1>DevOps Cloud Management Portal</h1>
+      <p class="subtitle">Python Flask REST API ↔ Microsoft SQL Server 2022 (Docker Orchestrated)</p>
+    </header>
+
+    <!-- Dashboard Grid -->
+    <div class="dashboard-grid">
+      
+      <!-- Left Column: Status & Form -->
+      <div>
+        <!-- Status Card -->
+        <div class="card" style="margin-bottom: 24px;">
+          <div class="card-header">
+            <h2 class="card-title">🔌 Service Health</h2>
+            <button class="btn btn-secondary" style="padding: 6px 12px;" onclick="checkHealth()">
+              🔄 Refresh
+            </button>
+          </div>
+
+          <div class="status-panel">
+            <div class="status-box">
+              <div class="status-label">Flask API</div>
+              <div id="apiStatusBadge" class="status-badge connected">
+                <span class="indicator-pulse"></span>
+                <span>ONLINE</span>
+              </div>
+            </div>
+            <div class="status-box">
+              <div class="status-label">MS SQL Server</div>
+              <div id="dbStatusBadge" class="status-badge connected">
+                <span class="indicator-pulse"></span>
+                <span id="dbStatusText">CHECKING...</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="btn-row" style="margin-bottom: 0;">
+            <button class="btn btn-secondary" onclick="initDb()">
+              ⚡ Initialize Users Table
+            </button>
+          </div>
+        </div>
+
+        <!-- Add User Card -->
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">👤 Add User to MSSQL</h2>
+          </div>
+
+          <form id="userForm" onsubmit="addUser(event)">
+            <div class="form-group">
+              <label for="name">Full Name</label>
+              <input type="text" id="name" placeholder="e.g. Aqeel DevOps" required autocomplete="off">
+            </div>
+
+            <div class="form-group">
+              <label for="email">Email Address</label>
+              <input type="email" id="email" placeholder="e.g. aqeel@devops.com" required autocomplete="off">
+            </div>
+
+            <button type="submit" class="btn btn-primary" id="submitBtn">
+              💾 Save to SQL Server
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Right Column: Live Data Table -->
+      <div>
+        <div class="card" style="height: 100%;">
+          <div class="card-header">
+            <h2 class="card-title">
+              📊 Users in SQL Server 
+              <span id="userCount" class="mono" style="font-size: 13px; background: rgba(56,189,248,0.15); padding: 2px 8px; border-radius: 6px;">0</span>
+            </h2>
+            <button class="btn btn-secondary" style="padding: 6px 12px;" onclick="loadUsers()">
+              ⚡ Reload
+            </button>
+          </div>
+
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>User</th>
+                  <th>Email</th>
+                  <th>Created At</th>
+                </tr>
+              </thead>
+              <tbody id="usersTableBody">
+                <tr>
+                  <td colspan="4" class="empty-state">
+                    <span>⏳</span>
+                    Loading data from Microsoft SQL Server...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Tech Footer -->
+    <div class="tech-stack">
+      <div class="tech-pill">🐳 Docker Compose</div>
+      <div class="tech-pill">🐍 Python 3.11 Flask</div>
+      <div class="tech-pill">🗄️ Microsoft SQL Server 2022</div>
+      <div class="tech-pill">💻 SSMS Port 1433</div>
+      <div class="tech-pill">🌐 Port 5000</div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = window.location.origin;
+
+    function showToast(message, type = 'success') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = type;
+      toast.style.display = 'block';
+      setTimeout(() => {
+        toast.style.display = 'none';
+      }, 4000);
+    }
+
+    async function checkHealth() {
+      const dbBadge = document.getElementById('dbStatusBadge');
+      const dbText = document.getElementById('dbStatusText');
+
+      try {
+        const res = await fetch(`${API_BASE}/api/health`);
+        const data = await res.json();
+        
+        if (data.database_status === 'connected') {
+          dbBadge.className = 'status-badge connected';
+          dbText.textContent = 'CONNECTED';
+        } else {
+          dbBadge.className = 'status-badge disconnected';
+          dbText.textContent = 'ERROR';
+        }
+      } catch (err) {
+        dbBadge.className = 'status-badge disconnected';
+        dbText.textContent = 'OFFLINE';
+      }
+    }
+
+    async function initDb() {
+      try {
+        const res = await fetch(`${API_BASE}/api/init-db`);
+        const data = await res.json();
+        if (res.ok) {
+          showToast('✅ Table "Users" initialized successfully!', 'success');
+          loadUsers();
+        } else {
+          showToast(`❌ Error: ${data.error}`, 'error');
+        }
+      } catch (err) {
+        showToast('❌ Failed to communicate with server', 'error');
+      }
+    }
+
+    async function loadUsers() {
+      const tbody = document.getElementById('usersTableBody');
+      const countEl = document.getElementById('userCount');
+
+      try {
+        const res = await fetch(`${API_BASE}/api/users`);
+        const users = await res.json();
+
+        if (Array.isArray(users) && users.length > 0) {
+          countEl.textContent = users.length;
+          tbody.innerHTML = users.map(user => {
+            const initial = (user.name || 'U').charAt(0).toUpperCase();
+            return `
+              <tr>
+                <td class="mono">#${user.id}</td>
+                <td>
+                  <div class="user-cell">
+                    <div class="user-avatar">${initial}</div>
+                    <strong>${escapeHtml(user.name)}</strong>
+                  </div>
+                </td>
+                <td style="color: #94a3b8;">${escapeHtml(user.email)}</td>
+                <td class="mono" style="font-size: 11px; color: #64748b;">
+                  ${user.created_at ? user.created_at.split('.')[0] : 'Just now'}
+                </td>
+              </tr>
+            `;
+          }).join('');
+        } else {
+          countEl.textContent = '0';
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="4" class="empty-state">
+                <span>📭</span>
+                No users found in SQL Server.<br>Add one using the form on the left!
+              </td>
+            </tr>
+          `;
+        }
+      } catch (err) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="4" class="empty-state" style="color: #ef4444;">
+              <span>⚠️</span>
+              Failed to load records from database.
+            </td>
+          </tr>
+        `;
+      }
+    }
+
+    async function addUser(e) {
+      e.preventDefault();
+      const submitBtn = document.getElementById('submitBtn');
+      const nameInput = document.getElementById('name');
+      const emailInput = document.getElementById('email');
+
+      const name = nameInput.value.trim();
+      const email = emailInput.value.trim();
+
+      if (!name || !email) return;
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = '⏳ Saving...';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/users`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email })
+        });
+
+        const data = await res.json();
+        if (res.ok) {
+          showToast(`✅ ${data.message || 'User saved successfully!'}`, 'success');
+          nameInput.value = '';
+          emailInput.value = '';
+          loadUsers();
+        } else {
+          showToast(`❌ Error: ${data.error}`, 'error');
+        }
+      } catch (err) {
+        showToast('❌ Network error saving user', 'error');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '💾 Save to SQL Server';
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+
+    // Auto load on page load
+    window.onload = () => {
+      checkHealth();
+      loadUsers();
+    };
+  </script>
+</body>
+</html>
