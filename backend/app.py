@@ -6,7 +6,8 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import OperationalError
 
 app = Flask(__name__)
-CORS(app)
+# Enable CORS for all routes and origins
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Environment variables se credentials fetch karna
 DB_USER = os.getenv("DB_USER", "sa")
@@ -42,24 +43,54 @@ class Task(db.Model):
 
 # SQL Server ready hone ka wait karna aur table auto-create karna
 def init_db():
-    retries = 10
+    retries = 15
     while retries > 0:
         try:
             with app.app_context():
                 db.create_all()
                 print("Database connected and tables initialized successfully.")
                 break
-        except OperationalError:
+        except Exception as e:
             retries -= 1
-            print(f"Waiting for SQL Server to boot up... retries left: {retries}")
+            print(f"Waiting for SQL Server to boot up... error: {e}, retries left: {retries}")
             time.sleep(3)
 
-# ----------------- CRUD Endpoints -----------------
+# ----------------- CRUD & Health Endpoints -----------------
 
 # Root check
 @app.route("/", methods=["GET"])
+def home():
+    return jsonify({
+        "status": "Online",
+        "service": "Flask SQL Server CRUD API",
+        "endpoints": {
+            "health": "GET /api/health",
+            "get_tasks": "GET /api/tasks",
+            "create_task": "POST /api/tasks",
+            "get_task": "GET /api/tasks/<id>",
+            "update_task": "PUT /api/tasks/<id>",
+            "delete_task": "DELETE /api/tasks/<id>"
+        }
+    }), 200
+
+# Health check
+@app.route("/api/health", methods=["GET"])
 def health_check():
-    return jsonify({"status": "Online", "service": "Flask SQL Server CRUD API"}), 200
+    try:
+        with app.app_context():
+            db.session.execute(db.text("SELECT 1"))
+        return jsonify({
+            "status": "healthy",
+            "database_status": "connected",
+            "service": "Flask SQL Server CRUD API"
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "status": "degraded",
+            "database_status": "disconnected",
+            "error": str(e)
+        }), 503
+
 
 # 1. CREATE: Naya task insert karna (POST)
 @app.route("/api/tasks", methods=["POST"])
