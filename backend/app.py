@@ -1,154 +1,123 @@
 import os
 import time
-import logging
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, request, jsonify
 from flask_cors import CORS
-import pyodbc
-
-# Setup Logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
-logger = logging.getLogger(__name__)
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.exc import OperationalError
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+CORS(app)
 
-def get_connection_string():
-    server = os.getenv("DB_SERVER", "sqlserver")
-    port = os.getenv("DB_PORT", "1433")
-    database = os.getenv("DB_NAME", "master")
-    username = os.getenv("DB_USER", "sa")
-    password = os.getenv("DB_PASSWORD") or os.getenv("MSSQL_SA_PASSWORD", "Passw0rd2026!")
+# Environment variables se credentials fetch karna
+DB_USER = os.getenv("DB_USER", "sa")
+DB_PASSWORD = os.getenv("DB_PASSWORD", "YourStrong@Passw0rd")
+DB_SERVER = os.getenv("DB_SERVER", "sqlserver")
+DB_PORT = os.getenv("DB_PORT", "1433")
+DB_NAME = os.getenv("DB_NAME", "master")
 
-    driver = "ODBC Driver 18 for SQL Server"
-    
-    return (
-        f"DRIVER={{{driver}}};"
-        f"SERVER={server},{port};"
-        f"DATABASE={database};"
-        f"UID={username};"
-        f"PWD={password};"
-        f"TrustServerCertificate=yes;"
-        f"Connection Timeout=15;"
-    )
+# SQL Server connection string (pymssql driver)
+app.config["SQLALCHEMY_DATABASE_URI"] = (
+    f"mssql+pymssql://{DB_USER}:{DB_PASSWORD}@{DB_SERVER}:{DB_PORT}/{DB_NAME}"
+)
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
-def get_db_connection(retries=1, delay=2):
-    """
-    Attempts to connect to SQL Server with retry mechanism.
-    """
-    conn_str = get_connection_string()
-    for attempt in range(1, retries + 1):
-        try:
-            return pyodbc.connect(conn_str)
-        except Exception as e:
-            if attempt == retries:
-                raise e
-            logger.warning(f"Connection attempt {attempt}/{retries} failed. Retrying in {delay}s...")
-            time.sleep(delay)
+db = SQLAlchemy(app)
 
-@app.route("/", methods=["GET"])
-def home():
-    if request.args.get("format") == "json":
-        return jsonify({
-            "status": "online",
-            "message": "CI/CD Auto Deploy Success!",
-            "service": "DevOps Flask API Container",
-            "db_server": os.getenv("DB_SERVER", "sqlserver"),
-            "db_name": os.getenv("DB_NAME", "master"),
-            "endpoints": {
-                "health": "GET /api/health",
-                "init_database": "GET /api/init-db",
-                "get_users": "GET /api/users",
-                "create_user": "POST /api/users"
-            }
-        }), 200
-    return render_template("index.html")
+# ----------------- Database Model -----------------
+class Task(db.Model):
+    __tablename__ = "tasks"
 
-@app.route("/api/health", methods=["GET"])
-def health_check():
-    try:
-        conn = get_db_connection(retries=3, delay=1)
-        cursor = conn.cursor()
-        cursor.execute("SELECT @@VERSION")
-        row = cursor.fetchone()
-        version_info = row[0] if row else "SQL Server Connected"
-        cursor.close()
-        conn.close()
-        return jsonify({
-            "status": "healthy",
-            "message": "CI/CD Auto Deploy Success!",
-            "database_status": "connected",
-            "sql_server_version": version_info
-        }), 200
-    except Exception as e:
-        logger.error(f"Health check DB error: {e}")
-        return jsonify({
-            "status": "degraded",
-            "database_status": "disconnected",
-            "error": str(e)
-        }), 503
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    title = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.String(500), nullable=True)
+    status = db.Column(db.String(50), default="Pending")
 
-@app.route("/api/init-db", methods=["GET"])
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "title": self.title,
+            "description": self.description,
+            "status": self.status
+        }
+
+# SQL Server ready hone ka wait karna aur table auto-create karna
 def init_db():
-    try:
-        conn = get_db_connection(retries=5, delay=2)
-        cursor = conn.cursor()
-        cursor.execute("""
-            IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Users' AND xtype='U')
-            CREATE TABLE Users (
-                ID INT IDENTITY(1,1) PRIMARY KEY,
-                Name NVARCHAR(100) NOT NULL,
-                Email NVARCHAR(100) NOT NULL,
-                CreatedAt DATETIME DEFAULT GETDATE()
-            )
-        """)
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return jsonify({"status": "success", "message": "Table 'Users' created successfully in SQL Server!"}), 200
-    except Exception as e:
-        logger.error(f"init_db error: {e}")
-        return jsonify({"error": str(e)}), 500
+    retries = 10
+    while retries > 0:
+        try:
+            with app.app_context():
+                db.create_all()
+                print("Database connected and tables initialized successfully.")
+                break
+        except OperationalError:
+            retries -= 1
+            print(f"Waiting for SQL Server to boot up... retries left: {retries}")
+            time.sleep(3)
 
-@app.route("/api/users", methods=["GET", "POST"])
-def manage_users():
-    try:
-        conn = get_db_connection(retries=3, delay=1)
-        cursor = conn.cursor()
+# ----------------- CRUD Endpoints -----------------
 
-        if request.method == "POST":
-            data = request.get_json(force=True, silent=True) or request.form.to_dict() or {}
-            name = str(data.get("name", "")).strip()
-            email = str(data.get("email", "")).strip()
+# Root check
+@app.route("/", methods=["GET"])
+def health_check():
+    return jsonify({"status": "Online", "service": "Flask SQL Server CRUD API"}), 200
 
-            if not name or not email:
-                return jsonify({"error": "Both 'name' and 'email' are required"}), 400
+# 1. CREATE: Naya task insert karna (POST)
+@app.route("/api/tasks", methods=["POST"])
+def create_task():
+    data = request.get_json()
+    if not data or "title" not in data:
+        return jsonify({"error": "Title is required"}), 400
 
-            cursor.execute("INSERT INTO Users (Name, Email) VALUES (?, ?)", (name, email))
-            conn.commit()
-            cursor.close()
-            conn.close()
-            return jsonify({"message": f"User '{name}' added successfully!"}), 201
+    new_task = Task(
+        title=data["title"],
+        description=data.get("description", ""),
+        status=data.get("status", "Pending")
+    )
+    db.session.add(new_task)
+    db.session.commit()
 
-        # GET request
-        cursor.execute("SELECT ID, Name, Email, CreatedAt FROM Users ORDER BY ID DESC")
-        rows = cursor.fetchall()
-        users = [
-            {
-                "id": row[0],
-                "name": row[1],
-                "email": row[2],
-                "created_at": str(row[3]) if len(row) > 3 and row[3] else None
-            }
-            for row in rows
-        ]
-        cursor.close()
-        conn.close()
-        return jsonify(users), 200
+    return jsonify({"message": "Task created successfully", "task": new_task.to_dict()}), 201
 
-    except Exception as e:
-        logger.error(f"manage_users error: {e}")
-        return jsonify({"error": str(e)}), 500
+# 2. READ ALL: Saare tasks fetch karna (GET)
+@app.route("/api/tasks", methods=["GET"])
+def get_tasks():
+    tasks = Task.query.all()
+    return jsonify([task.to_dict() for task in tasks]), 200
+
+# 3. READ ONE: Specific task ID se fetch karna (GET)
+@app.route("/api/tasks/<int:task_id>", methods=["GET"])
+def get_task(task_id):
+    task = Task.query.get(task_id)
+    if not task:
+        return jsonify({"error": "Task not found"}), 404
+    return jsonify(task.to_dict()), 200
+
+# 4. UPDATE: Task modify karna (PUT)
+@app.route("/api/tasks/<int:task_id>", methods=["PUT"])
+def update_task(task_id):
+    task = Task.query.get(task_id)
+    if not task:
+        return jsonify({"error": "Task not found"}), 404
+
+    data = request.get_json()
+    task.title = data.get("title", task.title)
+    task.description = data.get("description", task.description)
+    task.status = data.get("status", task.status)
+
+    db.session.commit()
+    return jsonify({"message": "Task updated successfully", "task": task.to_dict()}), 200
+
+# 5. DELETE: Task delete karna (DELETE)
+@app.route("/api/tasks/<int:task_id>", methods=["DELETE"])
+def delete_task(task_id):
+    task = Task.query.get(task_id)
+    if not task:
+        return jsonify({"error": "Task not found"}), 404
+
+    db.session.delete(task)
+    db.session.commit()
+    return jsonify({"message": f"Task {task_id} deleted successfully"}), 200
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    init_db()
+    app.run(host="0.0.0.0", port=5000)
